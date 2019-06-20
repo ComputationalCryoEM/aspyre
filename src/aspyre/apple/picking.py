@@ -23,19 +23,16 @@ class Picker:
     def __init__(self, particle_size, max_size, min_size, query_size, tau1, tau2, moa,
                  container_size, filename, output_directory):
 
-        self.particle_size = int(particle_size / 2)
-        self.max_size = int(max_size / 2)
-        self.min_size = int(min_size / 2)
-        self.query_size = int(query_size / 2)
-        self.query_size -= self.query_size % 2
+        self.particle_size = particle_size // 2
+        self.max_size = max_size // 2
+        self.min_size = min_size // 2
+        self.query_size = query_size // 2
         self.tau1 = tau1
         self.tau2 = tau2
-        self.moa = int(moa / 2)
-        self.container_size = int(container_size / 2)
+        self.moa = moa // 2
+        self.container_size = container_size // 2
         self.filename = filename
         self.output_directory = output_directory
-
-        self.query_size -= self.query_size % 2
 
     def read_mrc(self):
         """Gets and preprocesses micrograph.

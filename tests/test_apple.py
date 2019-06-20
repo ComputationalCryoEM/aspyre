@@ -1,5 +1,6 @@
 from unittest import TestCase
 from aspyre.apple.apple import Apple
+import pytest
 
 import os.path
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'saved_test_data', 'mrc_files')
@@ -12,6 +13,7 @@ class ApplePickerTestCase(TestCase):
     def tearDown(self):
         pass
 
+    @pytest.mark.acceptance
     def testPickCenters(self):
         # 440 particles with the following centers
         centers = {
