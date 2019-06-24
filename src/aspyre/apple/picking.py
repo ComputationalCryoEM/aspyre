@@ -85,7 +85,9 @@ class Picker:
         """
 
         micro_img = self.im
+        logger.info('Extracting query images')
         query_box = PickerHelper.extract_query(micro_img, int(self.query_size / 2))
+        logger.info('Extracting query images complete')
 
         out_shape = query_box.shape[0], query_box.shape[1], query_box.shape[2], query_box.shape[3] // 2 + 1
         query_box_a = np.empty(out_shape, dtype='complex128')

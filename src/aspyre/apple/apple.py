@@ -87,6 +87,7 @@ class Apple:
 
         logger.info('Computing scores for query images')
         score = picker.query_score(show_progress=show_progress)  # compute score using normalized cross-correlations
+        logger.info('Computing scores complete')
 
         while True:
             logger.info(f'Running svm with tau1={picker.tau1}, tau2={picker.tau2}')
