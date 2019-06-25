@@ -141,6 +141,8 @@ class Picker:
 
         x, y = PickerHelper.get_training_set(micro_img, bw_mask_p, bw_mask_n, self.query_size)
 
+        x = asnumpy(x)
+        y = asnumpy(y)
         scaler = preprocessing.StandardScaler()
         scaler.fit(x)
         x = scaler.transform(x)
