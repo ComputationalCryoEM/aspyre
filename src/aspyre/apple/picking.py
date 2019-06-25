@@ -15,6 +15,7 @@ from aspyre.utils import get_numeric_library, asnumpy
 from aspyre.apple.helper import PickerHelper
 
 logger = logging.getLogger(__name__)
+xp = get_numeric_library()
 
 
 class Picker:
@@ -93,17 +94,15 @@ class Picker:
         query_box = PickerHelper.extract_query(micro_img, self.query_size // 2)
         logger.info('Extracting query images complete')
 
-        xp = get_numeric_library()
-        c_query_box = xp.asarray(query_box)
-        query_box_a = xp.fft.fft2(c_query_box, axes=(2, 3))
-        query_box = xp.conj(query_box_a)
+        query_box = xp.conj(xp.fft.fft2(query_box, axes=(2, 3)))
 
-        reference_box_a = PickerHelper.extract_references(micro_img, self.query_size, self.container_size)
-
-        c_reference_box = xp.asarray(reference_box_a)
-        reference_box = xp.fft.fft2(c_reference_box, axes=(1, 2))
+        reference_box = PickerHelper.extract_references(
+            micro_img, self.query_size, self.container_size)
+        reference_box = xp.fft.fft2(reference_box, axes=(1, 2))
  
-        conv_map = xp.zeros((reference_box.shape[0], query_box.shape[0], query_box.shape[1]))
+        conv_map = xp.zeros((reference_box.shape[0],
+                             query_box.shape[0],
+                             query_box.shape[1]))
 
         n_works = reference_box.shape[0]
         pbar = tqdm(total=n_works, disable=not show_progress)
@@ -119,7 +118,6 @@ class Picker:
         min_val = xp.amin(conv_map)
         max_val = xp.amax(conv_map)
         thresh = min_val + (max_val - min_val) / config.apple.response_thresh_norm_factor
-
         return asnumpy(xp.sum(conv_map >= thresh, axis=2))
 
     def run_svm(self, score):
@@ -302,17 +300,17 @@ class Picker:
         """
         idx = np.argsort(-np.reshape(score, (np.prod(score.shape)), 'F'))
 
-        y = idx % score.shape[0]
-        x = np.floor(idx/score.shape[0])
+        y, x = np.unravel_index(idx, score.shape, order='F')
 
         bw_mask_p = np.zeros((micro_img.shape[0], micro_img.shape[1]))
 
-        begin_row_idx = y*int(self.query_size / 2)
-        end_row_idx = np.minimum(y * int(self.query_size / 2) + self.query_size,
+        qs = self.query_size // 2
+        begin_row_idx = y * qs
+        end_row_idx = np.minimum(begin_row_idx + self.query_size,
                                  bw_mask_p.shape[0] * np.ones(y.shape[0]))
 
-        begin_col_idx = x*int(self.query_size / 2)
-        end_col_idx = np.minimum(x * int(self.query_size / 2) + self.query_size,
+        begin_col_idx = x * qs
+        end_col_idx = np.minimum(begin_col_idx + self.query_size,
                                  bw_mask_p.shape[1] * np.ones(x.shape[0]))
 
         begin_row_idx = begin_row_idx.astype(int)
@@ -321,13 +319,18 @@ class Picker:
         end_col_idx = end_col_idx.astype(int)
 
         for j in range(0, particle_windows.astype(int)):
-            bw_mask_p[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = np.ones(
-                end_row_idx[j] - begin_row_idx[j], end_col_idx[j] - begin_col_idx[j])
+            bw_mask_p[begin_row_idx[j]:end_row_idx[j],
+                      begin_col_idx[j]:end_col_idx[j]] = np.ones(
+                          end_row_idx[j] - begin_row_idx[j],
+                          end_col_idx[j] - begin_col_idx[j])
 
         bw_mask_n = np.copy(bw_mask_p)
-        for j in range(particle_windows.astype(int), non_noise_windows.astype(int)):
-            bw_mask_n[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = np.ones(
-                end_row_idx[j] - begin_row_idx[j], end_col_idx[j] - begin_col_idx[j])
+        for j in range(particle_windows.astype(int),
+                       non_noise_windows.astype(int)):
+            bw_mask_n[begin_row_idx[j]:end_row_idx[j],
+                      begin_col_idx[j]:end_col_idx[j]] = np.ones(
+                          end_row_idx[j] - begin_row_idx[j],
+                          end_col_idx[j] - begin_col_idx[j])
 
         return bw_mask_p, bw_mask_n
 
