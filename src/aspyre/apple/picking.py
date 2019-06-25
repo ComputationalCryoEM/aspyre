@@ -36,8 +36,9 @@ class Picker:
         self.output_directory = output_directory
 
         self.im = self.read_mrc()
+        self.original_im = self.read_mrc(original=True)
 
-    def read_mrc(self):
+    def read_mrc(self, original=False):
         """Gets and preprocesses micrograph.
 
         Reads the micrograph, applies binning and a low-pass filter.
@@ -48,6 +49,9 @@ class Picker:
 
         with mrcfile.open(self.filename, mode='r+', permissive=True) as mrc:
             im = mrc.data.astype('float')
+
+        if original:
+            return im
 
         # Discard outer pixels
         im = im[
