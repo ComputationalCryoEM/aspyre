@@ -57,6 +57,10 @@
             "gamma": 0.5
         },
 
+        "model": {
+            "name": "SVM"
+        },
+
         "response_thresh_norm_factor": 20,
         "conv_map_nthreads": 16
     },

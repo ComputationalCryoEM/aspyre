@@ -39,6 +39,31 @@ class Picker:
         self.im = self.read_mrc()
         self.original_im = self.read_mrc(original=True)
 
+
+        if hasattr(config.apple, 'model') and config.apple.model.name == "GaussianMixture":
+            logger.info('Using Gaussian Mixture Model Classifier')
+            from sklearn.mixture import GaussianMixture
+            self.model = GaussianMixture(n_components=2)
+        elif hasattr(config.apple, 'model') and config.apple.model.name == "GaussianNaiveBayes":
+            logger.info('Using Gaussian Naive Bayes Classifier')
+            from sklearn.naive_bayes import GaussianNB
+            self.model = GaussianNB()
+        elif hasattr(config.apple, 'model') and config.apple.model.name == "XGBoost":
+            logger.info('Using XGBoost Classifier')
+            import xgboost as xgb
+            self.model = xgb.XGBClassifier(objective='binary:hinge', learning_rate=0.1,
+                                           max_depth=6, n_estimators=10,
+                                           method='gpu_hist')
+        elif hasattr(config.apple, 'model') and config.apple.model.name == "ThunderSVM":
+            logger.info('Using ThunderSVM Classifier')
+            import thundersvm
+            self.model = thundersvm.SVC(kernel=config.apple.svm.kernel, gamma=config.apple.svm.gamma)
+        else:
+            logger.info('Using SVM Classifier')
+            self.model = svm.SVC(C=1, kernel=config.apple.svm.kernel,
+                                 gamma=config.apple.svm.gamma,
+                                 class_weight='balanced')
+
     def read_mrc(self, original=False):
         """Gets and preprocesses micrograph.
 
@@ -99,7 +124,7 @@ class Picker:
         reference_box = PickerHelper.extract_references(
             micro_img, self.query_size, self.container_size)
         reference_box = xp.fft.fft2(reference_box, axes=(1, 2))
- 
+
         conv_map = xp.zeros((reference_box.shape[0],
                              query_box.shape[0],
                              query_box.shape[1]))
@@ -148,7 +173,7 @@ class Picker:
         scaler = preprocessing.StandardScaler()
         scaler.fit(x)
         x = scaler.transform(x)
-        classify = svm.SVC(C=1, kernel=config.apple.svm.kernel, gamma=config.apple.svm.gamma, class_weight='balanced')
+        classify = self.model
         classify.fit(x, y)
 
         mean_all, std_all = PickerHelper.moments(micro_img, self.query_size)
