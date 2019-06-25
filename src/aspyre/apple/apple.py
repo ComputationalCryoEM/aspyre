@@ -110,7 +110,7 @@ class Apple:
 
         particle_image = None
         if create_jpg and self.output_dir is not None:
-            particle_image = self.particle_image(picker.im, centers)
+            particle_image = self.particle_image(picker.original_im, picker.particle_size, centers)
             misc.imsave(
                 os.path.join(self.output_dir, os.path.splitext(os.path.basename(picker.filename))[0] + '_result.jpg'),
                 particle_image
@@ -122,9 +122,9 @@ class Apple:
             if particle_image is not None:
                 return particle_image
             else:
-                return self.particle_image(picker.im, centers)
+                return self.particle_image(picker.original_im, picker.particle_size, centers)
 
-    def particle_image(self, micro_img, centers):
+    def particle_image(self, micro_img, particle_size, centers):
         """
         Return a numpy array representing the picked centers on a micrograph, suitable for rendering in a jupyter
             notebook or saving as a jpg etc.
@@ -132,12 +132,13 @@ class Apple:
         :param centers: Picked centers for micrograph.
         :return: A numpy array with picked centers displayed as rectangles
         """
-        micro_img = micro_img - np.amin(micro_img)
+        micro_img = np.double(micro_img)
+        micro_img = micro_img - np.amin(np.reshape(micro_img, (np.prod(micro_img.shape))))
         picks = np.ones(micro_img.shape)
         for i in range(0, centers.shape[0]):
             y = int(centers[i, 1])
             x = int(centers[i, 0])
-            d = int(np.floor(self.particle_size))
+            d = int(np.floor(particle_size))
             picks[y-d:y-d+5, x-d:x+d] = 0
             picks[y+d:y+d+5, x-d:x+d] = 0
             picks[y-d:y+d, x-d:x-d+5] = 0
