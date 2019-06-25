@@ -148,6 +148,8 @@ class Picker:
         classify.fit(x, y)
 
         mean_all, std_all = PickerHelper.moments(micro_img, self.query_size)
+        mean_all = asnumpy(mean_all)
+        std_all = asnumpy(std_all)
 
         mean_all = mean_all[self.query_size - 1:-(self.query_size - 1),
                             self.query_size - 1:-(self.query_size - 1)]

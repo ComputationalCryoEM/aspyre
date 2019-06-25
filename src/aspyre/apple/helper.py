@@ -1,5 +1,8 @@
 import numpy as np
 import pyfftw
+from aspyre.utils import get_numeric_library, asnumpy
+
+xp = get_numeric_library()
 
 
 class PickerHelper:
@@ -13,13 +16,13 @@ class PickerHelper:
             std: sigma value in filter.
         """
 
-        y, x = np.mgrid[-(size_filter - 1) // 2: (size_filter - 1) // 2 + 1,
+        y, x = xp.mgrid[-(size_filter - 1) // 2: (size_filter - 1) // 2 + 1,
                         -(size_filter - 1) // 2: (size_filter - 1) // 2 + 1]
 
-        response = np.exp(-np.square(x) - np.square(y) / (2*(std**2)))/(np.sqrt(2*np.pi)*std)
-        response[response < np.finfo('float').eps] = 0
+        response = xp.exp(-xp.square(x) - xp.square(y) / (2*(std**2)))/(xp.sqrt(2*xp.pi)*std)
+        response[response < xp.finfo('float').eps] = 0
 
-        return response / response.sum()  # Normalize so sum is 1
+        return asnumpy(response / response.sum())  # Normalize so sum is 1
 
     @classmethod
     def extract_windows(cls, img, block_size):
@@ -42,19 +45,19 @@ class PickerHelper:
         trunc_x = size_x % block_size
         trunc_y = size_y % block_size
 
-        img = img[: size_y - trunc_y, : size_x-trunc_x]
+        img = xp.asarray(img[: size_y - trunc_y, : size_x-trunc_x])
         dim3_size = np.sqrt(np.prod(img.shape) // (block_size ** 2))
 
-        img = np.reshape(img, (block_size,
+        img = xp.reshape(img, (block_size,
                                dim3_size.astype(int),
                                block_size,
                                dim3_size.astype(int)), 'F')
 
-        img = np.transpose(img, (0, 2, 1, 3))
-        img = np.reshape(img, (img.shape[0]*img.shape[1], img.shape[2], img.shape[3]), 'F')
-        img = np.reshape(img, (img.shape[0], img.shape[1]*img.shape[2]), 'F')
+        img = xp.transpose(img, (0, 2, 1, 3))
+        img = xp.reshape(img, (img.shape[0]*img.shape[1], img.shape[2], img.shape[3]), 'F')
+        img = xp.reshape(img, (img.shape[0], img.shape[1]*img.shape[2]), 'F')
 
-        return img.copy()
+        return img
 
     @classmethod
     def extract_query(cls, img, block_size):
@@ -76,39 +79,39 @@ class PickerHelper:
         trunc_x = size_x % block_size
         trunc_y = size_y % block_size
 
-        blocks = img[: size_y - trunc_y, : size_x - trunc_x]
+        blocks = xp.asarray(img[: size_y - trunc_y, : size_x - trunc_x])
 
         dim3_size = np.sqrt(np.prod(blocks.shape) // (block_size ** 2))
-        blocks = np.reshape(blocks,
+        blocks = xp.reshape(blocks,
                             (block_size, dim3_size.astype(int), block_size,  dim3_size.astype(int)),
                             'F')
 
-        blocks = np.transpose(blocks, (0, 2, 1, 3))
+        blocks = xp.transpose(blocks, (0, 2, 1, 3))
 
-        blocks = np.reshape(blocks, (blocks.shape[0], blocks.shape[1], -1), 'F')
+        blocks = xp.reshape(blocks, (blocks.shape[0], blocks.shape[1], -1), 'F')
 
-        blocks = np.concatenate(
+        blocks = xp.concatenate(
             (blocks,
-             np.concatenate((blocks[:, :, 1:],
-                             np.reshape(blocks[:, :, 0], (blocks.shape[0], blocks.shape[1], 1), 'F')),
+             xp.concatenate((blocks[:, :, 1:],
+                             xp.reshape(blocks[:, :, 0], (blocks.shape[0], blocks.shape[1], 1), 'F')),
                             axis=2)), axis=0)
 
-        temp = np.concatenate((blocks[:, :, int(np.floor(2 * img.shape[1] / 2 / block_size)):],
-                               blocks[:, :, 0:int(np.floor(2 * img.shape[1] / 2 / block_size))]),
+        temp = xp.concatenate((blocks[:, :, img.shape[1] // block_size:],
+                               blocks[:, :, 0:img.shape[1] // block_size]),
                               axis=2)
 
-        blocks = np.concatenate((blocks, temp), axis=1)
+        blocks = xp.concatenate((blocks, temp), axis=1)
 
-        blocks = np.reshape(blocks,
+        blocks = xp.reshape(blocks,
                             (2 * block_size, 2 * block_size,
-                             int(np.floor(2 * img.shape[0] / 2 / block_size)),
-                             int(np.floor(2 * img.shape[1] / 2 / block_size))), 'F')
+                             img.shape[0] // block_size,
+                             img.shape[1] // block_size), 'F')
 
         blocks = blocks[:, :, 0:blocks.shape[2]-1, 0:blocks.shape[3]-1]
 
-        blocks = np.transpose(blocks, (2, 3, 0, 1))
+        blocks = xp.transpose(blocks, (2, 3, 0, 1))
 
-        return blocks.copy()
+        return blocks
 
     @classmethod
     def extract_references(cls, img, query_size, container_size):
@@ -124,10 +127,10 @@ class PickerHelper:
             3D Matrix of reference images.  windows[0] is the first reference window.
         """
 
-        num_containers_row = int(np.floor(img.shape[0] / container_size))
-        num_containers_col = int(np.floor(img.shape[1] / container_size))
+        num_containers_row = img.shape[0] // container_size
+        num_containers_col = img.shape[1] // container_size
 
-        windows = np.zeros((num_containers_row * num_containers_col * 4, query_size, query_size))
+        windows = xp.zeros((num_containers_row * num_containers_col * 4, query_size, query_size))
         win_idx = 0
 
         mean_all, std_all = cls.moments(img, query_size)
@@ -138,6 +141,8 @@ class PickerHelper:
                                                                  y_contain * container_size),
                            (x_contain - 1) * container_size: min(img.shape[1],
                                                                  x_contain * container_size)]
+
+                temp = xp.asarray(temp)
 
                 mean_contain = mean_all[(y_contain - 1) * container_size + query_size - 1: min(
                     mean_all.shape[0] - query_size,
@@ -154,31 +159,31 @@ class PickerHelper:
                                   mean_all.shape[1] - query_size, (
                                           x_contain - 1) * container_size + container_size)]
 
-                y, x = np.where(mean_contain == mean_contain.max())
+                y, x = xp.where(mean_contain == mean_contain.max())
                 if np.prod(y.shape) == 1:
                     windows[win_idx, :, :] = temp[int(y):int(y + query_size),
                                                   int(x):int(x + query_size)]
                     win_idx = win_idx + 1
                     
-                y, x = np.where(mean_contain == mean_contain.min())
+                y, x = xp.where(mean_contain == mean_contain.min())
                 if np.prod(y.shape) == 1:
                     windows[win_idx, :, :] = temp[int(y):int(y + query_size),
                                                   int(x):int(x + query_size)]
                     win_idx = win_idx + 1
                     
-                y, x = np.where(std_contain == std_contain.max())
+                y, x = xp.where(std_contain == std_contain.max())
                 if np.prod(y.shape) == 1:
                     windows[win_idx, :, :] = temp[int(y):int(y + query_size),
                                                   int(x):int(x + query_size)]
                     win_idx = win_idx + 1
                     
-                y, x = np.where(std_contain == std_contain.min())
+                y, x = xp.where(std_contain == std_contain.min())
                 if np.prod(y.shape) == 1:
                     windows[win_idx, :, :] = temp[int(y):int(y + query_size),
                                                   int(x):int(x + query_size)]
                     win_idx = win_idx + 1
 
-        return windows.copy()
+        return windows
 
     @classmethod
     def get_training_set(cls, micro_img, bw_mask_p, bw_mask_n, n):
@@ -194,10 +199,10 @@ class PickerHelper:
             A matrix of features and a vertor of labels for the SVM training.
         """
 
-        non_overlap = cls.extract_windows(micro_img, n)
+        non_overlap = asnumpy(cls.extract_windows(micro_img, n))
 
         windows = non_overlap.copy()
-        indicate = cls.extract_windows(bw_mask_p, n)
+        indicate = asnumpy(cls.extract_windows(bw_mask_p, n))
         r, c = np.where(indicate == 0)
         c = np.setdiff1d(np.arange(0, indicate.shape[1]), c)
         windows = windows.take(c, 1)
@@ -205,7 +210,7 @@ class PickerHelper:
         p_std = np.std(windows, axis=0)
 
         windows = non_overlap.copy()
-        indicate = cls.extract_windows(bw_mask_n, n)
+        indicate = asnumpy(cls.extract_windows(bw_mask_n, n))
         r, c = np.where(indicate == 1)
         c = np.setdiff1d(np.arange(0, indicate.shape[1]), c)
         windows = windows.take(c, 1)
@@ -238,37 +243,27 @@ class PickerHelper:
             entry for each possible (query_size x query_size) window in the micrograph.
         """
         
-        filt = np.ones((query_size, query_size)) / (query_size * query_size)
-        filt = np.pad(filt, (0, img.shape[0]-1), 'constant', constant_values=(0, 0))
-        pad_img = np.pad(img, (0, query_size - 1), 'constant', constant_values=(0, 0))
-        pad_img_square = np.square(pad_img)
-        filt_freq = np.empty(pad_img.shape, dtype='complex128')
-        img_freq = np.empty(pad_img.shape, dtype='complex128')
+        filt = xp.ones((query_size, query_size)) / (query_size * query_size)
+        filt = xp.pad(filt, (0, img.shape[0]-1), 'constant',
+                      constant_values=(0, 0))
+        filt_freq = xp.fft.fft2(filt, axes=(0, 1))
 
-        fft_class = pyfftw.FFTW(np.empty_like(filt.astype('complex128')), filt_freq,
-                                axes=(0, 1), direction='FFTW_FORWARD')
+        pad_img = xp.pad(img, (0, query_size - 1), 'constant',
+                         constant_values=(0, 0))
+        img_freq = xp.fft.fft2(pad_img, axes=(0, 1))
 
-        fft_class(filt, filt_freq)
-        fft_class(pad_img, img_freq)
+        mean_freq = xp.multiply(img_freq, filt_freq)
 
-        mean_freq = np.empty(filt_freq.shape, dtype=filt_freq.dtype)
-        np.multiply(img_freq, filt_freq, out=mean_freq)
+        mean_all = xp.fft.ifft2(mean_freq, axes=(0, 1)).real
 
-        mean_all = np.empty(mean_freq.shape, dtype=mean_freq.dtype)
-        fft_class2 = pyfftw.FFTW(np.empty_like(mean_freq), mean_all, axes=(0, 1), direction='FFTW_BACKWARD')
-        fft_class2(mean_freq, mean_all)
-        mean_all = np.real(mean_all)
+        pad_img_square = xp.square(pad_img)
+        img_var_freq = xp.fft.fft2(pad_img_square, axes=(0, 1))
 
-        img_var_freq = np.empty(pad_img_square.shape, dtype='complex128')
-        var_freq = np.empty(pad_img_square.shape, dtype='complex128')
-        fft_class(pad_img_square, img_var_freq)
+        var_freq = xp.multiply(img_var_freq, filt_freq)
 
-        np.multiply(img_var_freq, filt_freq, out=var_freq)
+        var_all = xp.fft.ifft2(var_freq, axes=(0, 1))
+        var_all = var_all.real - xp.power(mean_all, 2)
 
-        var_all = np.empty(var_freq.shape, dtype=var_freq.dtype)
-        fft_class2(var_freq, var_all)
-        var_all = np.real(var_all) - np.power(mean_all, 2)
-
-        std_all = np.sqrt(np.maximum(0, var_all))
+        std_all = xp.sqrt(xp.maximum(0, var_all))
 
         return mean_all, std_all
