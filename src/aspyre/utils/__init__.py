@@ -9,3 +9,29 @@ def ensure(cond, error_message=None):
     """
     if not cond:
         raise AssertionError(error_message)
+
+
+CUPY_ENABLED = False
+try:
+    import cupy as xp
+    CUPY_ENABLED = True
+except ImportError:
+    import numpy as xp
+        
+
+def get_numeric_library():
+    """
+    Based on configuration, import and return numpy or cupy
+    """
+    return xp
+
+
+def asnumpy(array):
+    """
+    Based on configuration, return the cupy array as a numpy array
+    or pass back the numpy array
+    """
+    if CUPY_ENABLED:
+        return xp.asnumpy(array)
+    else:
+        return array

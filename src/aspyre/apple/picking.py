@@ -3,8 +3,6 @@ import logging
 
 import mrcfile
 import numpy as np
-import pyfftw
-import cupy
 from concurrent import futures
 from tqdm import tqdm
 
@@ -13,6 +11,7 @@ from scipy.ndimage import binary_fill_holes, binary_erosion, binary_dilation, ce
 from sklearn import svm, preprocessing
 
 from aspyre import config
+from aspyre.utils import get_numeric_library, asnumpy
 from aspyre.apple.helper import PickerHelper
 
 logger = logging.getLogger(__name__)
@@ -90,33 +89,34 @@ class Picker:
         query_box = PickerHelper.extract_query(micro_img, self.query_size // 2)
         logger.info('Extracting query images complete')
 
-        c_query_box = cupy.asarray(query_box)
-        query_box_a = cupy.fft.fft2(c_query_box, axes=(2, 3))
-        query_box = cupy.conj(query_box_a)
+        xp = get_numeric_library()
+        c_query_box = xp.asarray(query_box)
+        query_box_a = xp.fft.fft2(c_query_box, axes=(2, 3))
+        query_box = xp.conj(query_box_a)
 
         reference_box_a = PickerHelper.extract_references(micro_img, self.query_size, self.container_size)
 
-        c_reference_box = cupy.asarray(reference_box_a)
-        reference_box = cupy.fft.fft2(c_reference_box, axes=(1, 2))
+        c_reference_box = xp.asarray(reference_box_a)
+        reference_box = xp.fft.fft2(c_reference_box, axes=(1, 2))
  
-        conv_map = cupy.zeros((reference_box.shape[0], query_box.shape[0], query_box.shape[1]))
+        conv_map = xp.zeros((reference_box.shape[0], query_box.shape[0], query_box.shape[1]))
 
         n_works = reference_box.shape[0]
         pbar = tqdm(total=n_works, disable=not show_progress)
         for index in range(n_works):
-            window_t = cupy.multiply(reference_box[index], query_box)
-            cc = cupy.fft.ifft2(window_t, axes=(2, 3))
+            window_t = xp.multiply(reference_box[index], query_box)
+            cc = xp.fft.ifft2(window_t, axes=(2, 3))
             conv_map[index, :, :] = cc.real.max((2, 3)) - cc.real.mean((2, 3))
             pbar.update(1)
         pbar.close()
 
-        conv_map = cupy.transpose(conv_map, (1, 2, 0))
+        conv_map = xp.transpose(conv_map, (1, 2, 0))
 
-        min_val = cupy.amin(conv_map)
-        max_val = cupy.amax(conv_map)
+        min_val = xp.amin(conv_map)
+        max_val = xp.amax(conv_map)
         thresh = min_val + (max_val - min_val) / config.apple.response_thresh_norm_factor
 
-        return cupy.asnumpy(cupy.sum(conv_map >= thresh, axis=2))
+        return asnumpy(xp.sum(conv_map >= thresh, axis=2))
 
     def run_svm(self, score):
         """
