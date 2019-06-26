@@ -86,8 +86,15 @@ class Apple:
         ensure(not all([return_centers, return_img]), "Cannot specify both return_centers and return_img")
         ensure(filepath.endswith('.mrc'), f"Input file doesn't seem to be an MRC format! ({filepath})")
 
-        thread_index = int(threading.current_thread().name[6:])
-        with device(thread_index):
+        device_index = 0
+        thread_name = threading.current_thread().name
+        if thread_name.startswith('apple_'):
+            try:
+                device_index = int(thread_name[6:])
+            except ValueError:
+                device_index = 0
+
+        with device(device_index):
 
             picker = Picker(self.particle_size, self.max_particle_size, self.min_particle_size, self.query_image_size,
                             self.tau1, self.tau2, self.minimum_overlap_amount, self.container_size, filepath,
