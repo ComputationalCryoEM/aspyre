@@ -1,4 +1,5 @@
 import logging
+import threading
 import glob
 import os
 import numpy as np
@@ -8,7 +9,7 @@ from scipy import misc
 
 from aspyre.apple.picking import Picker
 from aspyre import config
-from aspyre.utils import ensure
+from aspyre.utils import ensure, device
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +63,16 @@ class Apple:
         ensure(self.particle_size >= self.query_image_size,
                f"Particle size ({self.particle_size}) must exceed query image size ({self.query_image_size})!")
 
-    def process_folder(self, folder, create_jpg=False):
+    def process_folder(self, folder, create_jpg=False, show_progress=True):
         filenames = glob.glob('{}/*.mrc'.format(folder))
         logger.info("converting {} mrc files..".format(len(filenames)))
 
-        pbar = tqdm(total=len(filenames))
-        with futures.ThreadPoolExecutor(self.n_threads) as executor:
+        pbar = tqdm(total=len(filenames), disable=not show_progress)
+
+        # TODO: Ugly!
+        # Thread names are created as apple_0/apple_1 ..
+        # with int(threading.current_thread().name[6:]) giving us the thread index
+        with futures.ThreadPoolExecutor(self.n_threads, thread_name_prefix='apple') as executor:
             to_do = []
             for filename in filenames:
                 future = executor.submit(self.process_micrograph, filename, False, False, False, create_jpg)
@@ -81,32 +86,42 @@ class Apple:
         ensure(not all([return_centers, return_img]), "Cannot specify both return_centers and return_img")
         ensure(filepath.endswith('.mrc'), f"Input file doesn't seem to be an MRC format! ({filepath})")
 
-        picker = Picker(self.particle_size, self.max_particle_size, self.min_particle_size, self.query_image_size,
-                        self.tau1, self.tau2, self.minimum_overlap_amount, self.container_size, filepath,
-                        self.output_dir)
+        device_index = 0
+        thread_name = threading.current_thread().name
+        if thread_name.startswith('apple_'):
+            try:
+                device_index = int(thread_name[6:])
+            except ValueError:
+                device_index = 0
 
-        logger.info('Computing scores for query images')
-        score = picker.query_score(show_progress=show_progress)  # compute score using normalized cross-correlations
-        logger.info('Computing scores complete')
+        with device(device_index):
 
-        while True:
-            logger.info(f'Running svm with tau1={picker.tau1}, tau2={picker.tau2}')
-            # train SVM classifier and classify all windows in micrograph
-            segmentation = picker.run_svm(score)
+            picker = Picker(self.particle_size, self.max_particle_size, self.min_particle_size, self.query_image_size,
+                            self.tau1, self.tau2, self.minimum_overlap_amount, self.container_size, filepath,
+                            self.output_dir)
 
-            # If all windows are classified identically, update tau_1 or tau_2
-            if np.all(segmentation):
-                picker.tau2 += 500
-            elif not np.any(segmentation):
-                picker.tau1 += 500
-            else:
-                break
+            logger.info('Computing scores for query images')
+            score = picker.query_score(show_progress=show_progress)  # compute score using normalized cross-correlations
+            logger.info('Computing scores complete')
 
-        logger.info('Discarding suspected artifacts')
-        segmentation = picker.morphology_ops(segmentation)
+            while True:
+                logger.info(f'Running svm with tau1={picker.tau1}, tau2={picker.tau2}')
+                # train SVM classifier and classify all windows in micrograph
+                segmentation = picker.run_svm(score)
 
-        logger.info('Getting particle centers')
-        centers = picker.extract_particles(segmentation)
+                # If all windows are classified identically, update tau_1 or tau_2
+                if np.all(segmentation):
+                    picker.tau2 += 500
+                elif not np.any(segmentation):
+                    picker.tau1 += 500
+                else:
+                    break
+
+            logger.info('Discarding suspected artifacts')
+            segmentation = picker.morphology_ops(segmentation)
+
+            logger.info('Getting particle centers')
+            centers = picker.extract_particles(segmentation)
 
         particle_image = None
         if create_jpg and self.output_dir is not None:

@@ -1,5 +1,4 @@
 import numpy as np
-import pyfftw
 from aspyre.utils import get_numeric_library, asnumpy
 
 xp = get_numeric_library()
@@ -38,26 +37,19 @@ class PickerHelper:
             3D Matrix of blocks. For example, img[0] is the first block.
         """
 
-        # get size of image
-        size_x = img.shape[1]
-        size_y = img.shape[0]
-
         # keep only the portion of the image that can be slpit into blocks with no remainder
-        trunc_x = size_x % block_size
-        trunc_y = size_y % block_size
+        size_x = (img.shape[1] // block_size) * block_size
+        size_y = (img.shape[0] // block_size) * block_size
 
-        img = xp.asarray(img[: size_y - trunc_y, : size_x-trunc_x])
-        dim3_size = np.sqrt(np.prod(img.shape) // (block_size ** 2))
+        img = img[: size_y, : size_x]
+        dim3_size = np.sqrt(np.prod(img.shape) // (block_size ** 2)).astype(int)
 
-        img = xp.reshape(img, (block_size,
-                               dim3_size.astype(int),
-                               block_size,
-                               dim3_size.astype(int)), 'F')
+        img = xp.reshape(img, (block_size, dim3_size,
+                               block_size, dim3_size), 'F')
 
         img = xp.transpose(img, (0, 2, 1, 3))
         img = xp.reshape(img, (img.shape[0]*img.shape[1],
-                               img.shape[2], img.shape[3]), 'F')
-        img = xp.reshape(img, (img.shape[0], img.shape[1]*img.shape[2]), 'F')
+                               img.shape[2]*img.shape[3]), 'F')
 
         return img
 
@@ -74,19 +66,15 @@ class PickerHelper:
             4D Matrix of query images.
         """
 
-        size_x = img.shape[1]
-        size_y = img.shape[0]
-
         # keep only the portion of the image that can be slpit into blocks with no remainder
-        trunc_x = size_x % block_size
-        trunc_y = size_y % block_size
+        size_x = (img.shape[1] // block_size) * block_size
+        size_y = (img.shape[0] // block_size) * block_size
 
-        blocks = xp.asarray(img[: size_y - trunc_y, : size_x - trunc_x])
+        blocks = img[: size_y, : size_x]
+        dim3_size = np.sqrt(np.prod(img.shape) // (block_size ** 2)).astype(int)
 
-        dim3_size = np.sqrt(np.prod(blocks.shape) // (block_size ** 2))
-        blocks = xp.reshape(blocks,
-                            (block_size, dim3_size.astype(int), block_size,  dim3_size.astype(int)),
-                            'F')
+        blocks = xp.reshape(blocks, (block_size, dim3_size,
+                                     block_size,  dim3_size), 'F')
 
         blocks = xp.transpose(blocks, (0, 2, 1, 3))
 
@@ -95,7 +83,9 @@ class PickerHelper:
         blocks = xp.concatenate(
             (blocks,
              xp.concatenate((blocks[:, :, 1:],
-                             xp.reshape(blocks[:, :, 0], (blocks.shape[0], blocks.shape[1], 1), 'F')),
+                             xp.reshape(blocks[:, :, 0],
+                                        (blocks.shape[0],
+                                         blocks.shape[1], 1), 'F')),
                             axis=2)), axis=0)
 
         temp = xp.concatenate((blocks[:, :, img.shape[1] // block_size:],
@@ -116,6 +106,13 @@ class PickerHelper:
         return blocks
 
     @classmethod
+    def reference_size(cls, img, container_size):
+        num_containers_row = img.shape[0] // container_size
+        num_containers_col = img.shape[1] // container_size
+
+        return num_containers_row * num_containers_col * 4
+
+    @classmethod
     def extract_references(cls, img, query_size, container_size):
         """Chooses and extracts reference images from the micrograph. 
         
@@ -129,13 +126,8 @@ class PickerHelper:
             3D Matrix of reference images.  windows[0] is the first reference window.
         """
 
-        img = xp.asarray(img)
         num_containers_row = img.shape[0] // container_size
         num_containers_col = img.shape[1] // container_size
-
-        windows = xp.zeros((num_containers_row * num_containers_col * 4,
-                            query_size, query_size))
-        win_idx = 0
 
         mean_all, std_all = cls.moments(img, query_size)
 
@@ -156,39 +148,25 @@ class PickerHelper:
                 mean_contain = mean_all[y_start:y_end, x_start:x_end]
                 std_contain = std_all[y_start:y_end, x_start:x_end]
 
-                y, x = xp.where(mean_contain == mean_contain.max())
-                if y.size == 1:
-                    x = int(x[0])
-                    y = int(y[0])
-                    windows[win_idx, :, :] = temp[y:y + query_size,
-                                                  x:x + query_size]
-                    win_idx += 1
+                ind = xp.argmax(mean_contain)
+                if ind.size == 1:
+                    y, x = xp.unravel_index(ind, mean_contain.shape)
+                    yield temp[y:y + query_size, x:x + query_size]
 
-                y, x = xp.where(mean_contain == mean_contain.min())
-                if y.size == 1:
-                    x = int(x[0])
-                    y = int(y[0])
-                    windows[win_idx, :, :] = temp[y:y + query_size,
-                                                  x:x + query_size]
-                    win_idx += 1
+                ind = xp.argmin(mean_contain)
+                if ind.size == 1:
+                    y, x = xp.unravel_index(ind, mean_contain.shape)
+                    yield temp[y:y + query_size, x:x + query_size]
 
-                y, x = xp.where(std_contain == std_contain.max())
-                if y.size == 1:
-                    x = int(x[0])
-                    y = int(y[0])
-                    windows[win_idx, :, :] = temp[y:y + query_size,
-                                                  x:x + query_size]
-                    win_idx += 1
+                ind = xp.argmax(std_contain)
+                if ind.size == 1:
+                    y, x = xp.unravel_index(ind, std_contain.shape)
+                    yield temp[y:y + query_size, x:x + query_size]
 
-                y, x = xp.where(std_contain == std_contain.min())
-                if y.size == 1:
-                    x = int(x[0])
-                    y = int(y[0])
-                    windows[win_idx, :, :] = temp[y:y + query_size,
-                                                  x:x + query_size]
-                    win_idx += 1
-
-        return windows
+                ind = xp.argmin(std_contain)
+                if ind.size == 1:
+                    y, x = xp.unravel_index(ind, std_contain.shape)
+                    yield temp[y:y + query_size, x:x + query_size]
 
     @classmethod
     def get_training_set(cls, micro_img, bw_mask_p, bw_mask_n, n):
