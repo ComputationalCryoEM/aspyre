@@ -114,34 +114,36 @@ class Picker:
             Matrix containing a score for each query image.
         """
 
-        micro_img = self.im
+        micro_img = xp.asarray(self.im)
         logger.info('Extracting query images')
         query_box = PickerHelper.extract_query(micro_img, self.query_size // 2)
         logger.info('Extracting query images complete')
 
         query_box = xp.conj(xp.fft.fft2(query_box, axes=(2, 3)))
 
-        reference_box = PickerHelper.extract_references(
-            micro_img, self.query_size, self.container_size)
-        reference_box = xp.fft.fft2(reference_box, axes=(1, 2))
+        reference_size = PickerHelper.reference_size(micro_img,
+                                                     self.container_size)
 
-        conv_map = xp.zeros((reference_box.shape[0],
+        conv_map = xp.zeros((reference_size,
                              query_box.shape[0],
                              query_box.shape[1]))
 
-        n_works = reference_box.shape[0]
-        pbar = tqdm(total=n_works, disable=not show_progress)
-        for index in range(n_works):
-            window_t = xp.multiply(reference_box[index], query_box)
+        pbar = tqdm(total=reference_size, disable=not show_progress)
+        for index, reference_box in enumerate(
+            PickerHelper.extract_references(
+                micro_img, self.query_size, self.container_size)):
+            reference_box = xp.fft.fft2(reference_box, axes=(0, 1))
+            window_t = xp.multiply(reference_box, query_box)
             cc = xp.fft.ifft2(window_t, axes=(2, 3))
             conv_map[index, :, :] = cc.real.max((2, 3)) - cc.real.mean((2, 3))
             pbar.update(1)
+
         pbar.close()
 
         conv_map = xp.transpose(conv_map, (1, 2, 0))
 
-        min_val = xp.amin(conv_map)
-        max_val = xp.amax(conv_map)
+        min_val = xp.min(conv_map)
+        max_val = xp.max(conv_map)
         thresh = min_val + (max_val - min_val) / config.apple.response_thresh_norm_factor
         return asnumpy(xp.sum(conv_map >= thresh, axis=2))
 
@@ -161,7 +163,7 @@ class Picker:
             Segmentation of the micrograph into noise and particle projections.
         """
 
-        micro_img = self.im
+        micro_img = xp.asarray(self.im)
         particle_windows = np.floor(self.tau1)
         non_noise_windows = np.ceil(self.tau2)
         bw_mask_p, bw_mask_n = Picker.get_maps(self, score, micro_img, particle_windows, non_noise_windows)
