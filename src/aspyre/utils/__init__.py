@@ -35,3 +35,19 @@ def asnumpy(array):
         return xp.asnumpy(array)
     else:
         return array
+
+
+class CPUDevice:
+    # A no-op dummy 'Device' that can be used wherever
+    # a cuda.cupy.Device would have been used as a context manager
+    def __enter__(self):
+        pass
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
+def device(device_id):
+    if CUPY_ENABLED:
+        return xp.cuda.Device(device_id)
+    else:
+        return CPUDevice()
