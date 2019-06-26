@@ -15,20 +15,15 @@ CUPY_ENABLED = False
 try:
     import cupy as xp
     CUPY_ENABLED = True
-
 except ImportError:
     import numpy as xp
-        
 
-def get_numeric_library(only_numpy=False):
+
+def get_numeric_library():
     """
     Based on configuration, import and return numpy or cupy
     """
-    if only_numpy:
-        import numpy
-        return numpy
-    else:
-        return xp
+    return xp
 
 
 def asnumpy(array):
@@ -40,15 +35,3 @@ def asnumpy(array):
         return xp.asnumpy(array)
     else:
         return array
-
-class CPUDevice:
-    def __enter__(self):
-        pass
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
-
-def device(device_id):
-    if CUPY_ENABLED:
-        return xp.cuda.Device(device_id)
-    else:
-        return CPUDevice()
