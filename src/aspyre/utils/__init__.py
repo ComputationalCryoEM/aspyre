@@ -18,7 +18,7 @@ try:
 
 except ImportError:
     import numpy as xp
-        
+
 
 def get_numeric_library(only_numpy=False):
     """
@@ -52,3 +52,42 @@ def device(device_id):
         return xp.cuda.Device(device_id)
     else:
         return CPUDevice()
+
+if CUPY_ENABLED:
+    import cupy
+    my_erode = cupy.RawKernel(r'''
+      extern "C" __global__
+      void my_erode(const bool * __restrict__  i, bool * __restrict__ o, int r, int dx, int dy) {
+      int x = blockDim.x * blockIdx.x + threadIdx.x;
+      int y = blockDim.y * blockIdx.y + threadIdx.y;
+      int tr = r * r;  // handle circular structure element
+      if ((x < dx) && (y < dy)){ // thread valid check
+        if ((x < r) || (dx-x <= r) || (dy-y <= r) || (y < r)) // handle border region
+          o[x+dx*y] = false;
+        else // handle central region
+          for (int iy = y-r; iy <= y+r; iy++){
+            int trr = tr - ((iy-y) * (iy-y)); // handle circular structure element
+            for (int ix = x-r; ix <= x+r; ix++)
+              if (trr >= ((ix-x) * (ix-x))) // handle circular structure element
+                if (!(i[ix + dx*iy])) {o[x+dx*y] = false; return;}
+            }
+        }
+      }
+    ''', 'my_erode')
+    def erode_func(segmentation, element):
+
+        i = cupy.asarray(segmentation)
+        o = cupy.ones((segmentation.shape[0],segmentation.shape[1]), dtype=cupy.bool)
+        bdim = 32
+        gdim0 = (segmentation.shape[0]//bdim)+1
+        gdim1 = (segmentation.shape[1]//bdim)+1
+        radius = (element.shape[0]-1) // 2
+        my_erode((gdim0,gdim1), (bdim,bdim), (i,o,radius,segmentation.shape[0],segmentation.shape[1]))  # grid, block and arguments
+        segmentation_o = cupy.asnumpy(o)
+        return segmentation_o
+
+else:
+    from scipy.ndimage import binary_erosion
+    erode_func = binary_erosion
+
+

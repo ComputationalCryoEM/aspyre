@@ -11,7 +11,7 @@ from scipy.ndimage import binary_fill_holes, binary_erosion, binary_dilation, ce
 from sklearn import svm, preprocessing
 
 from aspyre import config
-from aspyre.utils import get_numeric_library, asnumpy
+from aspyre.utils import get_numeric_library, asnumpy, erode_func
 from aspyre.apple.helper import PickerHelper
 
 logger = logging.getLogger(__name__)
@@ -220,7 +220,8 @@ class Picker:
 
         y, x = np.ogrid[-self.max_size:self.max_size+1, -self.max_size:self.max_size+1]
         element = x*x+y*y <= self.max_size * self.max_size
-        segmentation_o = binary_erosion(segmentation, element)
+        #segmentation_o = binary_erosion(segmentation, element)
+        segmentation_o = erode_func(segmentation, element)
         segmentation_o = np.reshape(segmentation_o,
                                     (segmentation_o.shape[0], segmentation_o.shape[1], 1), 'F')
 
