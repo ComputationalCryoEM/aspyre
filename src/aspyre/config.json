@@ -40,7 +40,7 @@
         "tau1": 710,
         "tau2": 7100,
         "container_size": 450,
-        "n_threads": 4,
+        "n_threads": 1,
 
         "mrc": {
           "margin_left": 99,

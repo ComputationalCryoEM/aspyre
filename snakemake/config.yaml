@@ -1,0 +1,19 @@
+---
+
+path:
+    data_root: /tigress/junchaox/tests
+    mrc_file: __DATA_ROOT__/empiar10017m20/{id}.mrc
+    star_directory: /tigress/tcomi/aspyre_temp
+    star_file: __STAR_DIRECTORY__/{id}_applepick.star
+    picker_temp: __STAR_DIRECTORY__/temp_{ind}
+
+picker:
+    # this isn't actually used, but shows how it could be
+    # in the snakemake rule, add in {config[picker][options]}
+    options: >
+        --show_progress
+        --another_long_option false
+
+    # number of files to submit as one job
+    batch_size:
+        100

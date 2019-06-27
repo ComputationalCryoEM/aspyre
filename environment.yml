@@ -3,6 +3,7 @@ name: 'aspyre'
 channels:
   - defaults
   - conda-forge
+  - bioconda
 
 dependencies:
   - cupy
@@ -20,6 +21,7 @@ dependencies:
   - scikit-image=0.14.0
   - scikit-learn
   - scipy=0.19.1
+  - snakemake
   - wheel
   - pip:
     - coveralls

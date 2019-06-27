@@ -1,0 +1,49 @@
+import clean_config
+import os
+
+configfile: 'config.yaml'
+
+paths = config['path']
+paths = clean_config.clean_config_paths(paths)
+paths['base'] = os.getcwd()
+
+# defines all the ids to consider
+ids = glob_wildcards(paths['mrc_file']).id
+# expand outputs that should be generated
+outputs = expand(paths['star_file'], id=ids)
+# group into batch size
+batch_size = config['picker']['batch_size']
+outputs = [outputs[i:i+batch_size]
+           for i in range(0, len(outputs), batch_size)]
+# expected outputs is now the touched, temp files
+temp_outputs = expand(paths['picker_temp'],
+                      ind=range(len(outputs)))
+
+
+onstart:
+    print(f'Working on {len(ids)} mrc files')
+
+rule all:
+    input:
+        temp_outputs
+
+rule apple_picker:
+    input:
+        paths['mrc_file']
+
+    output:
+        paths['star_file']
+
+    group:
+        'applepick'
+
+    shell:
+        'python ../scripts/apple.py '
+            '--mrc_file {input} '
+            '--output_dir {paths[star_directory]} '
+
+for i, out in enumerate(outputs):
+    rule:
+        input: out
+        output: touch(paths['picker_temp'].format(ind=i))
+        group: 'applepick'
