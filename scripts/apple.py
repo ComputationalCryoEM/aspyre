@@ -2,6 +2,8 @@ import logging
 from aspyre.apple.apple import Apple
 from aspyre.utils.config import ConfigArgumentParser
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 logger = logging.getLogger('aspyre')
 

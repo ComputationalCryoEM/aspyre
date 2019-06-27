@@ -1,5 +1,6 @@
 import logging
 import threading
+import multiprocessing
 import glob
 import os
 import numpy as np
@@ -72,7 +73,7 @@ class Apple:
         # TODO: Ugly!
         # Thread names are created as apple_0/apple_1 ..
         # with int(threading.current_thread().name[6:]) giving us the thread index
-        with futures.ThreadPoolExecutor(self.n_threads, thread_name_prefix='apple') as executor:
+        with futures.ProcessPoolExecutor(self.n_threads) as executor:
             to_do = []
             for filename in filenames:
                 future = executor.submit(self.process_micrograph, filename, False, False, False, create_jpg)
@@ -87,10 +88,11 @@ class Apple:
         ensure(filepath.endswith('.mrc'), f"Input file doesn't seem to be an MRC format! ({filepath})")
 
         device_index = 0
-        thread_name = threading.current_thread().name
-        if thread_name.startswith('apple_'):
+        process_name = multiprocessing.current_process().name
+        logger.info('Process name {}'.format(process_name[8:]))
+        if process_name.startswith('Process-'):
             try:
-                device_index = int(thread_name[6:])
+                device_index = int(process_name[8:]) - 1
             except ValueError:
                 device_index = 0
 
