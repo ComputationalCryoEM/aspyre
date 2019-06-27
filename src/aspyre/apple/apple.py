@@ -66,6 +66,9 @@ class Apple:
 
     def process_folder(self, folder, create_jpg=False, show_progress=True):
         filenames = glob.glob('{}/*.mrc'.format(folder))
+        self.process_multiple_microgrpahs(filenames, create_jpg, show_progress)
+
+    def process_multiple_micrographs(self, filenames, create_jpg=False, show_progress=True):
         logger.info("converting {} mrc files..".format(len(filenames)))
 
         pbar = tqdm(total=len(filenames), disable=not show_progress)
@@ -76,7 +79,8 @@ class Apple:
         with futures.ProcessPoolExecutor(self.n_threads) as executor:
             to_do = []
             for filename in filenames:
-                future = executor.submit(self.process_micrograph, filename, False, False, False, create_jpg)
+                future = executor.submit(self.process_micrograph,
+                                         filename, False, False, False, create_jpg)
                 to_do.append(future)
 
             for _ in futures.as_completed(to_do):
@@ -87,14 +91,15 @@ class Apple:
         ensure(not all([return_centers, return_img]), "Cannot specify both return_centers and return_img")
         ensure(filepath.endswith('.mrc'), f"Input file doesn't seem to be an MRC format! ({filepath})")
 
+        logger.info(f'Starting {filepath}')
         device_index = 0
-        process_name = multiprocessing.current_process().name
-        logger.info('Process name {}'.format(process_name[8:]))
-        if process_name.startswith('Process-'):
-            try:
-                device_index = int(process_name[8:]) - 1
-            except ValueError:
-                device_index = 0
+        # process_name = multiprocessing.current_process().name
+        # logger.info('Process name {}'.format(process_name[8:]))
+        # if process_name.startswith('Process-'):
+        #     try:
+        #         device_index = int(process_name[8:]) - 1
+        #     except ValueError:
+        #         device_index = 0
 
         with device(device_index):
 

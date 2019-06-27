@@ -14,6 +14,9 @@ if __name__ == '__main__':
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--mrc_dir", help="Path to folder containing all mrc files for particle picking")
     group.add_argument("--mrc_file", help="Path to a single mrc file for particle picking")
+    group.add_argument("--mrc_multiple",
+                       nargs='+',
+                       help="List of multiple mrc files to process")
 
     parser.add_argument("--show_progress", action='store_true',
                        help="Show progress bar (logger INFO messages will be disabled)")
@@ -31,3 +34,7 @@ if __name__ == '__main__':
             apple.process_folder(args.mrc_dir, create_jpg=args.create_jpg, show_progress=args.show_progress)
         elif args.mrc_file:
             apple.process_micrograph(args.mrc_file, create_jpg=args.create_jpg)
+        elif args.mrc_multiple:
+            apple.process_multiple_micrographs(args.mrc_multiple,
+                                               create_jpg=args.create_jpg,
+                                               show_progress=args.show_progress)

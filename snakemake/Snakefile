@@ -9,41 +9,83 @@ paths['base'] = os.getcwd()
 
 # defines all the ids to consider
 ids = glob_wildcards(paths['mrc_file']).id
+ids = ids[:8]
 # expand outputs that should be generated
 outputs = expand(paths['star_file'], id=ids)
 # group into batch size
 batch_size = config['picker']['batch_size']
-outputs = [outputs[i:i+batch_size]
-           for i in range(0, len(outputs), batch_size)]
-# expected outputs is now the touched, temp files
-temp_outputs = expand(paths['picker_temp'],
-                      ind=range(len(outputs)))
 
+
+localrules:
+    all,
+    group_picker,
+    aggregate_picker
 
 onstart:
     print(f'Working on {len(ids)} mrc files')
 
 rule all:
     input:
-        temp_outputs
+        outputs
+
+checkpoint group_picker:
+    input:
+        expand(paths['mrc_file'], id=ids)
+
+    output:
+        directory(paths['picker_temp_dir'])
+
+    run:
+        if not os.path.exists(output[0]):
+            os.mkdir(output[0])
+        outputs = [input[i:i+batch_size]
+                   for i in range(0, len(input), batch_size)]
+        for i, out in enumerate(outputs):
+            with open(paths['picker_temp_in'].format(ind=i), 'w') as writer:
+                writer.write('\n'.join(out) + '\n')
+
+def mrc_option(wildcards, input):
+    with open(input[0]) as reader:
+        return ' '.join([line.rstrip() for line in reader])
 
 rule apple_picker:
     input:
-        paths['mrc_file']
+        paths['picker_temp_in']
+
+    output:
+        temp(paths['picker_temp_out'])
+
+    params:
+        mrc=mrc_option
+
+    shell:
+        'python ../scripts/apple.py '
+            '--mrc_multiple {params.mrc} '
+            '--output_dir {paths[star_directory]} \n'
+        'rm  {input} \n'
+        'touch {output} '
+
+
+def convert_picker(wildcards):
+    if not os.path.exists(paths['picker_temp_dir']):
+        checkpoints.group_picker.get(**wildcards).output[0]
+
+    return paths['picker_temp_out'].format(
+        ind=ids.index(wildcards.id) // batch_size)
+
+def get_input_star(wildcards):
+    star_file = paths['star_directory'] + '/{id}_applepick.star'
+    return star_file.format(id=wildcards.id)
+
+rule aggregate_picker:
+    input:
+        convert_picker
 
     output:
         paths['star_file']
 
-    group:
-        'applepick'
+    params:
+        star=get_input_star
 
     shell:
-        'python ../scripts/apple.py '
-            '--mrc_file {input} '
-            '--output_dir {paths[star_directory]} '
-
-for i, out in enumerate(outputs):
-    rule:
-        input: out
-        output: touch(paths['picker_temp'].format(ind=i))
-        group: 'applepick'
+        'mv {params.star} {output}'

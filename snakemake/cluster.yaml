@@ -3,14 +3,12 @@ __default__:
     n: "{threads}"
     time: '0-1'
     memory: '1G'
-    jobname: "snake"
+    jobname: "{rule}"
     gpu: 0
 
-applepick:
-    jobname: 'applepick'
-    memory: '8G'
-    # also the number of jobs to run at once
-    n: 4
+apple_picker:
+    memory: '4G'
+    n: 2  # should match number of processes
     time: '0-1'
     gpu: 1
 

@@ -2,10 +2,12 @@
 
 path:
     data_root: /tigress/junchaox/tests
-    mrc_file: __DATA_ROOT__/empiar10017m20/{id}.mrc
+    mrc_file: __DATA_ROOT__/empiar10017/{id}.mrc
     star_directory: /tigress/tcomi/aspyre_temp
-    star_file: __STAR_DIRECTORY__/{id}_applepick.star
-    picker_temp: __STAR_DIRECTORY__/temp_{ind}
+    star_file: __STAR_DIRECTORY__/{id}.star
+    picker_temp_dir: __STAR_DIRECTORY__/temp/
+    picker_temp_in: __STAR_DIRECTORY__/temp/{ind}.in
+    picker_temp_out: __STAR_DIRECTORY__/temp/{ind}.out
 
 picker:
     # this isn't actually used, but shows how it could be
@@ -16,4 +18,4 @@ picker:
 
     # number of files to submit as one job
     batch_size:
-        100
+        8
