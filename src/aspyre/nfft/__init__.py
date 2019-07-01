@@ -61,7 +61,7 @@ def check_backends(raise_errors=True):
             logger.info(f"NFFT backend {backend} usable")
             return plan_class
 
-    backends = OrderedDict((k, _try_backend(k)) for k in config.nfft_backends)
+    backends = OrderedDict((k, _try_backend(k)) for k in config.nfft.backends)
     try:
         default_backend = next(k for k, v in backends.items() if v is not None)
         logger.error(f'Selected NFFT backend = {default_backend}')

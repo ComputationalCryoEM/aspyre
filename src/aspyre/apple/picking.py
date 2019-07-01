@@ -35,6 +35,7 @@ class Picker:
         self.filename = filename
         self.output_directory = output_directory
 
+        self.original_im = None  # populated in read_mrc()
         self.im = self.read_mrc()
 
     def read_mrc(self):
@@ -48,23 +49,24 @@ class Picker:
 
         with mrcfile.open(self.filename, mode='r+', permissive=True) as mrc:
             im = mrc.data.astype('float')
+        self.original_im = im
 
         # Discard outer pixels
         im = im[
-            config.apple.mrc.margin_top: -config.apple.mrc.margin_bottom,
-            config.apple.mrc.margin_left: -config.apple.mrc.margin_right
+            config.apple.mrc_margin_top: -config.apple.mrc_margin_bottom,
+            config.apple.mrc_margin_left: -config.apple.mrc_margin_right
         ]
 
         # Make square
         side_length = min(im.shape)
         im = im[:side_length, :side_length]
 
-        im = misc.imresize(im, 1/config.apple.mrc.shrink_factor, mode='F', interp='cubic')
+        im = misc.imresize(im, 1/config.apple.mrc_shrink_factor, mode='F', interp='cubic')
         im = signal.correlate(
             im,
             PickerHelper.gaussian_filter(
-                config.apple.mrc.gauss_filter_size,
-                config.apple.mrc.gauss_filter_sigma
+                config.apple.mrc_gauss_filter_size,
+                config.apple.mrc_gauss_filter_sigma
             ),
             'same'
         )
@@ -167,7 +169,7 @@ class Picker:
         scaler = preprocessing.StandardScaler()
         scaler.fit(x)
         x = scaler.transform(x)
-        classify = svm.SVC(C=1, kernel=config.apple.svm.kernel, gamma=config.apple.svm.gamma, class_weight='balanced')
+        classify = svm.SVC(C=1, kernel=config.apple.svm_kernel, gamma=config.apple.svm_gamma, class_weight='balanced')
         classify.fit(x, y)
 
         mean_all, std_all = PickerHelper.moments(micro_img, self.query_size)
@@ -285,14 +287,14 @@ class Picker:
         center = center + (self.query_size // 2 - 1) * np.ones(center.shape)
         center = center + np.ones(center.shape)
 
-        center = config.apple.mrc.shrink_factor * center
+        center = config.apple.mrc_shrink_factor * center
 
         # swap columns to align with Relion
         center = center[:, [1, 0]]
 
         # first column is x; second column is y - offset by margins that were discarded from the image
-        center[:, 0] += config.apple.mrc.margin_left
-        center[:, 1] += config.apple.mrc.margin_top
+        center[:, 0] += config.apple.mrc_margin_left
+        center[:, 1] += config.apple.mrc_margin_top
 
         if self.output_directory is not None:
             basename = os.path.basename(self.filename)
