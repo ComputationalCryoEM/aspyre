@@ -16,7 +16,7 @@ setup(
 
     package_dir={'': 'src'},
     packages=find_namespace_packages(where='src'),
-    package_data={'aspyre': ['config.json']},
+    package_data={'aspyre': ['config.ini']},
 
     zip_safe=True,
     test_suite='tests',
