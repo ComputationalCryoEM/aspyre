@@ -111,6 +111,13 @@ class PickerHelper:
         return blocks.copy()
 
     @classmethod
+    def reference_size(cls, img, container_size):
+        num_containers_row = img.shape[0] // container_size
+        num_containers_col = img.shape[1] // container_size
+
+        return num_containers_row * num_containers_col * 4
+
+    @classmethod
     def extract_references(cls, img, query_size, container_size):
         """Chooses and extracts reference images from the micrograph. 
         

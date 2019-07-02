@@ -3,8 +3,6 @@ import logging
 
 import mrcfile
 import numpy as np
-import pyfftw
-from concurrent import futures
 from tqdm import tqdm
 
 from scipy import ndimage, misc, signal
@@ -13,6 +11,7 @@ from sklearn import svm, preprocessing
 
 from aspyre import config
 from aspyre.apple.helper import PickerHelper
+from aspyre.utils.numeric import xp
 
 logger = logging.getLogger(__name__)
 
@@ -86,62 +85,34 @@ class Picker:
             Matrix containing a score for each query image.
         """
 
-        micro_img = self.im
-        query_box = PickerHelper.extract_query(micro_img, int(self.query_size / 2))
+        micro_img = xp.asarray(self.im)
+        logger.info('Extracting query images')
+        query_box = PickerHelper.extract_query(micro_img, self.query_size // 2)
+        logger.info('Extracting query images complete')
 
-        out_shape = query_box.shape[0], query_box.shape[1], query_box.shape[2], query_box.shape[3] // 2 + 1
-        query_box_a = np.empty(out_shape, dtype='complex128')
-        fft_class_f = pyfftw.FFTW(np.empty_like(query_box), query_box_a, axes=(2, 3), direction='FFTW_FORWARD')
-        fft_class_f(query_box, query_box_a)
-        query_box = np.conj(query_box_a)
+        query_box = xp.conj(xp.fft2(query_box, axes=(2, 3)))
 
-        reference_box_a = PickerHelper.extract_references(micro_img, self.query_size, self.container_size)
-        out_shape2 = reference_box_a.shape[0], reference_box_a.shape[1], reference_box_a.shape[-1] // 2 + 1
+        reference_size = PickerHelper.reference_size(micro_img, self.container_size)
+        conv_map = xp.zeros((reference_size, query_box.shape[0], query_box.shape[1]))
 
-        reference_box = np.empty(out_shape2, dtype='complex128')
-        fft_class_f2 = pyfftw.FFTW(np.empty_like(reference_box_a), reference_box, axes=(1, 2), direction='FFTW_FORWARD')
-        fft_class_f2(reference_box_a, reference_box)
-
-        conv_map = np.zeros((reference_box.shape[0], query_box.shape[0], query_box.shape[1]))
-
-        def _work(index):
-            window_t = np.empty(query_box.shape, dtype=query_box.dtype)
-            cc = np.empty((query_box.shape[0], query_box.shape[1], query_box.shape[2],
-                           2 * query_box.shape[3] - 2), dtype=micro_img.dtype)
-            fft_class = pyfftw.FFTW(window_t, cc, axes=(2, 3), direction='FFTW_BACKWARD')
-
-            window_t = np.multiply(reference_box[index], query_box)
-            fft_class(window_t, cc)
-            return index, cc.real.max((2, 3)) - cc.real.mean((2, 3))
-
-        n_works = reference_box.shape[0]
-        n_threads = config.apple.conv_map_nthreads
-
-        pbar = tqdm(total=n_works, disable=not show_progress)
-        if n_threads > 1:
-
-            with futures.ThreadPoolExecutor(n_threads) as executor:
-                to_do = [executor.submit(_work, i) for i in range(n_works)]
-
-                for future in futures.as_completed(to_do):
-                    i, res = future.result()
-                    conv_map[i, :, :] = res
-                    pbar.update(1)
-        else:
-
-            for i in range(n_works):
-                _, conv_map[i, :, :] = _work(i)
-                pbar.update(1)
+        pbar = tqdm(total=reference_size, disable=not show_progress)
+        for index, reference_box in enumerate(
+            PickerHelper.extract_references(micro_img, self.query_size, self.container_size)
+        ):
+            reference_box = xp.fft2(reference_box, axes=(0, 1))
+            window_t = xp.multiply(reference_box, query_box)
+            cc = xp.ifft2(window_t, axes=(2, 3))
+            conv_map[index, :, :] = cc.real.max((2, 3)) - cc.real.mean((2, 3))
+            pbar.update(1)
 
         pbar.close()
 
-        conv_map = np.transpose(conv_map, (1, 2, 0))
+        conv_map = xp.transpose(conv_map, (1, 2, 0))
 
-        min_val = np.amin(conv_map)
-        max_val = np.amax(conv_map)
+        min_val = xp.min(conv_map)
+        max_val = xp.max(conv_map)
         thresh = min_val + (max_val - min_val) / config.apple.response_thresh_norm_factor
-
-        return np.sum(conv_map >= thresh, axis=2)
+        return xp.asnumpy(xp.sum(conv_map >= thresh, axis=2))
 
     def run_svm(self, score):
         """
