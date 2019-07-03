@@ -136,6 +136,8 @@ class Picker:
         bw_mask_p, bw_mask_n = Picker.get_maps(self, score, micro_img, particle_windows, non_noise_windows)
 
         x, y = PickerHelper.get_training_set(micro_img, bw_mask_p, bw_mask_n, self.query_size)
+        x = xp.asnumpy(x)
+        y = xp.asnumpy(y)
 
         scaler = preprocessing.StandardScaler()
         scaler.fit(x)
@@ -144,6 +146,8 @@ class Picker:
         classify.fit(x, y)
 
         mean_all, std_all = PickerHelper.moments(micro_img, self.query_size)
+        mean_all = xp.asnumpy(mean_all)
+        std_all = xp.asnumpy(std_all)
 
         mean_all = mean_all[self.query_size - 1:-(self.query_size - 1),
                             self.query_size - 1:-(self.query_size - 1)]
