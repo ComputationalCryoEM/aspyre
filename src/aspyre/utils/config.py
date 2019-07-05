@@ -1,92 +1,88 @@
-"""
-Class and utility functions for a Config object driven from a .json file,
-with functionality to override values in blocks of code / scripts
-"""
-
-import functools
+import configparser
 from contextlib import contextmanager
-import logging.config
-import logging
-import json
-from copy import deepcopy
-from types import SimpleNamespace
 from argparse import ArgumentParser
-
-
-def _rsetattr(obj, attr, val):
-    # Recursive setattr
-    pre, _, post = attr.rpartition('.')
-    try:
-        int(post)
-    except ValueError:
-        return setattr(_rgetattr(obj, pre) if pre else obj, post, val)
-    else:
-        _rgetattr(obj, pre)[int(post)] = val
-
-
-def _rgetattr(obj, attr, *args):
-    # Recursive getattr
-    def _getattr(obj, attr):
-        return getattr(obj, attr, *args)
-    return functools.reduce(_getattr, [obj] + attr.split('.'))
 
 
 @contextmanager
 def config_override(config, args):
     try:
-        original_namespace = deepcopy(config.namespace)
+        # save original section values so we can reapply them later
+        old_values = {}
+        for section_name in config.sections():
+            section = getattr(config, section_name)
+            old_values[section_name] = {}
+            for k, v in section.items():
+                old_values[section_name][k] = v
+
         for k, v in args.__dict__.items():
             if k.startswith('config.'):
-                _rsetattr(config.namespace, k[7:], v)
+                _, section_name, key_name = k.split('.')
+                section = getattr(config, section_name)
+                setattr(section, key_name, type(old_values[section_name][key_name])(v))
         yield args
     finally:
-        config.namespace = original_namespace
+        for section_name in old_values:
+            section = getattr(config, section_name)
+            for k, v in old_values[section_name].items():
+                setattr(section, k, v)
+
+
+class ConfigSection:
+    """
+    A thin wrapper over a ConfigParser's SectionProxy object,
+    that tries to infer the types of values, and makes them available as attributes
+    Currently int/float/str are supported.
+    """
+    def __init__(self, section_proxy):
+        self.d = {}  # key value dict where the value is typecast to int/float/str
+        for k, v in section_proxy.items():
+            try:
+                v = int(v)
+            except ValueError:
+                try:
+                    v = float(v)
+                except ValueError:
+                    if ',' in v:
+                        v = [t.strip() for t in v.split(',')]
+                    self.d[k] = v
+                else:
+                    self.d[k] = v
+            else:
+                self.d[k] = v
+
+    def __setattr__(self, key, value):
+        if key == 'd':
+            return super().__setattr__(key, value)
+        else:
+            self.d[key] = value
+
+    def __getattr__(self, item):
+        if item != 'd':
+            return self.d[item]
+
+    def items(self):
+        return self.d.items()
 
 
 class Config:
-    def __init__(self, json_string):
-        d = json.loads(json_string)
+    def __init__(self, ini_string=None):
+        self.config = configparser.ConfigParser(inline_comment_prefixes='#')
+        self.init_from_string(ini_string)
 
-        # The logging module supports configuration from a dictionary using dictConfig, but not a SimpleNamespace,
-        # so take care of that first
-        if 'logging' in d:
-            logging.config.dictConfig(d['logging'])
-        else:
-            logging.basicConfig(level=logging.INFO)
+    def init_from_string(self, ini_string):
+        self.config.read_string(ini_string)
+        self._read_sections()
 
-        # Now that logging is configured, reload the json, but now with an object hook
-        # so we have cleaner access to keys by way of (recursive) attributes
-        self.namespace = json.loads(json_string, object_hook=lambda d: SimpleNamespace(**d))
+    def init_from_fp(self, ini_fp):
+        self.config.read_file(ini_fp)
+        self._read_sections()
 
-        # Finally, there's no need preserving the 'logging' attribute in this object since that's
-        # a one-time configuration and would only interfere with intended use-cases of this object
-        if 'logging' in d:
-            delattr(self.namespace, 'logging')
+    def _read_sections(self):
+        for section in self.config.sections():
+            setattr(self, section, ConfigSection(self.config[section]))
 
-    def __getattr__(self, item):
-        return getattr(self.namespace, item)
-
-    def flatten(self):
-        # Flatten object and return a dictionary of key=>value pairs
-        # where key names are delimited using the '.' delimited
-        # Adapted from
-        #   https://towardsdatascience.com/flattening-json-objects-in-python-f5343c794b10
-        out = {}
-
-        def _flatten(x, name=''):
-            if type(x) is SimpleNamespace:
-                for a in x.__dict__:
-                    _flatten(getattr(x, a), name + a + '.')
-            elif type(x) is list:
-                i = 0
-                for a in x:
-                    _flatten(a, name + str(i) + '.')
-                    i += 1
-            else:
-                out[name[:-1]] = x
-
-        _flatten(self.namespace)
-        return out
+    def sections(self):
+        return self.config.sections()
 
 
 class ConfigArgumentParser(ArgumentParser):
@@ -107,8 +103,9 @@ class ConfigArgumentParser(ArgumentParser):
         super().__init__(*args, **kwargs)
 
         config_group = self.add_argument_group('config')
-        for k, v in self._config.flatten().items():
-            config_group.add_argument(f'--config.{k}', default=v, type=type(v))
+        for section in self._config.sections():
+            for k, v in getattr(self._config, section).items():
+                config_group.add_argument(f'--config.{section}.{k}', default=v)
 
     def parse_args(self, *args, **kwargs):
         """

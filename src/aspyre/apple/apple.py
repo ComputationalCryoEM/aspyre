@@ -22,7 +22,7 @@ class Apple:
         self.min_particle_size = config.apple.min_particle_size or self.particle_size // 4
         self.minimum_overlap_amount = config.apple.minimum_overlap_amount or self.particle_size // 10
         self.container_size = config.apple.container_size
-        self.n_threads = config.apple.n_threads
+        self.n_processes = config.apple.n_processes
         self.output_dir = output_dir
 
         if self.query_image_size is None:
@@ -64,22 +64,25 @@ class Apple:
 
     def process_folder(self, folder, create_jpg=False):
         filenames = glob.glob('{}/*.mrc'.format(folder))
-        logger.info("converting {} mrc files..".format(len(filenames)))
+        logger.info(f"converting {len(filenames)} mrc files")
+        logger.info(f"launching {self.n_processes} processes")
 
         pbar = tqdm(total=len(filenames))
-        with futures.ThreadPoolExecutor(self.n_threads) as executor:
+        with futures.ProcessPoolExecutor(self.n_processes) as executor:
             to_do = []
             for filename in filenames:
                 future = executor.submit(self.process_micrograph, filename, False, False, False, create_jpg)
                 to_do.append(future)
 
-            for _ in futures.as_completed(to_do):
+            for future in futures.as_completed(to_do):
+                # Retrieve (None) result, since this operation re-raises Exceptions, if any.
+                _ = future.result()
                 pbar.update(1)
         pbar.close()
 
     def process_micrograph(self, filepath, return_centers=True, return_img=False, show_progress=True, create_jpg=False):
         ensure(not all([return_centers, return_img]), "Cannot specify both return_centers and return_img")
-        ensure(filepath.endswith('.mrc'), f"Input file doesn't seem to be an MRC format! ({filepath})")
+        ensure(filepath.endswith('.mrc'), f"Input file doesn't seem to be in MRC format! ({filepath})")
 
         picker = Picker(self.particle_size, self.max_particle_size, self.min_particle_size, self.query_image_size,
                         self.tau1, self.tau2, self.minimum_overlap_amount, self.container_size, filepath,
@@ -109,7 +112,7 @@ class Apple:
 
         particle_image = None
         if create_jpg and self.output_dir is not None:
-            particle_image = self.particle_image(picker.im, centers)
+            particle_image = self.particle_image(picker.original_im, picker.particle_size, centers)
             misc.imsave(
                 os.path.join(self.output_dir, os.path.splitext(os.path.basename(picker.filename))[0] + '_result.jpg'),
                 particle_image
@@ -121,22 +124,23 @@ class Apple:
             if particle_image is not None:
                 return particle_image
             else:
-                return self.particle_image(picker.im, centers)
+                return self.particle_image(picker.original_im, picker.particle_size, centers)
 
-    def particle_image(self, micro_img, centers):
+    def particle_image(self, micro_img, particle_size, centers):
         """
         Return a numpy array representing the picked centers on a micrograph, suitable for rendering in a jupyter
             notebook or saving as a jpg etc.
         :param micro_img: The micrograph image as a numpy array
+        :param particle_size: Particle size of picked particles
         :param centers: Picked centers for micrograph.
         :return: A numpy array with picked centers displayed as rectangles
         """
-        micro_img = micro_img - np.amin(micro_img)
+        micro_img = micro_img - np.amin(np.reshape(micro_img, (np.prod(micro_img.shape))))
         picks = np.ones(micro_img.shape)
         for i in range(0, centers.shape[0]):
             y = int(centers[i, 1])
             x = int(centers[i, 0])
-            d = int(np.floor(self.particle_size))
+            d = int(np.floor(particle_size))
             picks[y-d:y-d+5, x-d:x+d] = 0
             picks[y+d:y+d+5, x-d:x+d] = 0
             picks[y-d:y+d, x-d:x-d+5] = 0

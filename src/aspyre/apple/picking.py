@@ -1,10 +1,9 @@
 import os
 import logging
+from concurrent import futures
 
 import mrcfile
 import numpy as np
-import pyfftw
-from concurrent import futures
 from tqdm import tqdm
 
 from scipy import ndimage, misc, signal
@@ -13,6 +12,7 @@ from sklearn import svm, preprocessing
 
 from aspyre import config
 from aspyre.apple.helper import PickerHelper
+from aspyre.utils.numeric import xp
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ class Picker:
         self.filename = filename
         self.output_directory = output_directory
 
+        self.original_im = None  # populated in read_mrc()
         self.im = self.read_mrc()
 
     def read_mrc(self):
@@ -48,23 +49,24 @@ class Picker:
 
         with mrcfile.open(self.filename, mode='r+', permissive=True) as mrc:
             im = mrc.data.astype('float')
+        self.original_im = im
 
         # Discard outer pixels
         im = im[
-            config.apple.mrc.margin_top: -config.apple.mrc.margin_bottom,
-            config.apple.mrc.margin_left: -config.apple.mrc.margin_right
+            config.apple.mrc_margin_top: -config.apple.mrc_margin_bottom,
+            config.apple.mrc_margin_left: -config.apple.mrc_margin_right
         ]
 
         # Make square
         side_length = min(im.shape)
         im = im[:side_length, :side_length]
 
-        im = misc.imresize(im, 1/config.apple.mrc.shrink_factor, mode='F', interp='cubic')
+        im = misc.imresize(im, 1/config.apple.mrc_shrink_factor, mode='F', interp='cubic')
         im = signal.correlate(
             im,
             PickerHelper.gaussian_filter(
-                config.apple.mrc.gauss_filter_size,
-                config.apple.mrc.gauss_filter_sigma
+                config.apple.mrc_gauss_filter_size,
+                config.apple.mrc_gauss_filter_sigma
             ),
             'same'
         )
@@ -84,40 +86,31 @@ class Picker:
             Matrix containing a score for each query image.
         """
 
-        micro_img = self.im
-        query_box = PickerHelper.extract_query(micro_img, int(self.query_size / 2))
+        micro_img = xp.asarray(self.im)
+        logger.info('Extracting query images')
+        query_box = PickerHelper.extract_query(micro_img, self.query_size // 2)
+        logger.info('Extracting query images complete')
 
-        out_shape = query_box.shape[0], query_box.shape[1], query_box.shape[2], query_box.shape[3] // 2 + 1
-        query_box_a = np.empty(out_shape, dtype='complex128')
-        fft_class_f = pyfftw.FFTW(np.empty_like(query_box), query_box_a, axes=(2, 3), direction='FFTW_FORWARD')
-        fft_class_f(query_box, query_box_a)
-        query_box = np.conj(query_box_a)
+        query_box = xp.conj(xp.fft2(query_box, axes=(2, 3)))
 
-        reference_box_a = PickerHelper.extract_references(micro_img, self.query_size, self.container_size)
-        out_shape2 = reference_box_a.shape[0], reference_box_a.shape[1], reference_box_a.shape[-1] // 2 + 1
+        reference_box = PickerHelper.extract_references(micro_img, self.query_size, self.container_size)
 
-        reference_box = np.empty(out_shape2, dtype='complex128')
-        fft_class_f2 = pyfftw.FFTW(np.empty_like(reference_box_a), reference_box, axes=(1, 2), direction='FFTW_FORWARD')
-        fft_class_f2(reference_box_a, reference_box)
-
-        conv_map = np.zeros((reference_box.shape[0], query_box.shape[0], query_box.shape[1]))
+        reference_size = PickerHelper.reference_size(micro_img, self.container_size)
+        conv_map = xp.zeros((reference_size, query_box.shape[0], query_box.shape[1]))
 
         def _work(index):
-            window_t = np.empty(query_box.shape, dtype=query_box.dtype)
-            cc = np.empty((query_box.shape[0], query_box.shape[1], query_box.shape[2],
-                           2 * query_box.shape[3] - 2), dtype=micro_img.dtype)
-            fft_class = pyfftw.FFTW(window_t, cc, axes=(2, 3), direction='FFTW_BACKWARD')
-
-            window_t = np.multiply(reference_box[index], query_box)
-            fft_class(window_t, cc)
+            reference_box_i = xp.fft.fft2(reference_box[index], axes=(0, 1))
+            window_t = xp.multiply(reference_box_i, query_box)
+            cc = xp.ifft2(window_t, axes=(2, 3))
             return index, cc.real.max((2, 3)) - cc.real.mean((2, 3))
 
-        n_works = reference_box.shape[0]
+        n_works = reference_size
         n_threads = config.apple.conv_map_nthreads
+        pbar = tqdm(total=reference_size, disable=not show_progress)
 
-        pbar = tqdm(total=n_works, disable=not show_progress)
+        # Ideally we'd like something like 'SerialExecutor' to enable easy debugging
+        # but for now do an if-else
         if n_threads > 1:
-
             with futures.ThreadPoolExecutor(n_threads) as executor:
                 to_do = [executor.submit(_work, i) for i in range(n_works)]
 
@@ -126,20 +119,18 @@ class Picker:
                     conv_map[i, :, :] = res
                     pbar.update(1)
         else:
-
             for i in range(n_works):
                 _, conv_map[i, :, :] = _work(i)
                 pbar.update(1)
 
         pbar.close()
 
-        conv_map = np.transpose(conv_map, (1, 2, 0))
+        conv_map = xp.transpose(conv_map, (1, 2, 0))
 
-        min_val = np.amin(conv_map)
-        max_val = np.amax(conv_map)
+        min_val = xp.min(conv_map)
+        max_val = xp.max(conv_map)
         thresh = min_val + (max_val - min_val) / config.apple.response_thresh_norm_factor
-
-        return np.sum(conv_map >= thresh, axis=2)
+        return xp.asnumpy(xp.sum(conv_map >= thresh, axis=2))
 
     def run_svm(self, score):
         """
@@ -157,20 +148,24 @@ class Picker:
             Segmentation of the micrograph into noise and particle projections.
         """
 
-        micro_img = self.im
+        micro_img = xp.asarray(self.im)
         particle_windows = np.floor(self.tau1)
         non_noise_windows = np.ceil(self.tau2)
         bw_mask_p, bw_mask_n = Picker.get_maps(self, score, micro_img, particle_windows, non_noise_windows)
 
         x, y = PickerHelper.get_training_set(micro_img, bw_mask_p, bw_mask_n, self.query_size)
+        x = xp.asnumpy(x)
+        y = xp.asnumpy(y)
 
         scaler = preprocessing.StandardScaler()
         scaler.fit(x)
         x = scaler.transform(x)
-        classify = svm.SVC(C=1, kernel=config.apple.svm.kernel, gamma=config.apple.svm.gamma, class_weight='balanced')
+        classify = svm.SVC(C=1, kernel=config.apple.svm_kernel, gamma=config.apple.svm_gamma, class_weight='balanced')
         classify.fit(x, y)
 
         mean_all, std_all = PickerHelper.moments(micro_img, self.query_size)
+        mean_all = xp.asnumpy(mean_all)
+        std_all = xp.asnumpy(std_all)
 
         mean_all = mean_all[self.query_size - 1:-(self.query_size - 1),
                             self.query_size - 1:-(self.query_size - 1)]
@@ -285,14 +280,14 @@ class Picker:
         center = center + (self.query_size // 2 - 1) * np.ones(center.shape)
         center = center + np.ones(center.shape)
 
-        center = config.apple.mrc.shrink_factor * center
+        center = config.apple.mrc_shrink_factor * center
 
         # swap columns to align with Relion
         center = center[:, [1, 0]]
 
         # first column is x; second column is y - offset by margins that were discarded from the image
-        center[:, 0] += config.apple.mrc.margin_left
-        center[:, 1] += config.apple.mrc.margin_top
+        center[:, 0] += config.apple.mrc_margin_left
+        center[:, 1] += config.apple.mrc_margin_top
 
         if self.output_directory is not None:
             basename = os.path.basename(self.filename)
@@ -313,36 +308,26 @@ class Picker:
             score: Matrix containing a score for each query image.
             micro_img: Micrograph image.
             particle_windows: Number of windows that must contain a particle.
-            non_noise_windows: Number of windows that must contain noise.
+            non_noise_windows: Number of windows that contain neither noise nor particles.
         """
+        particles = particle_windows.astype(int)
+        non_noise = non_noise_windows.astype(int)
+
         idx = np.argsort(-np.reshape(score, (np.prod(score.shape)), 'F'))
-
-        y = idx % score.shape[0]
-        x = np.floor(idx/score.shape[0])
-
+        x, y = np.unravel_index(idx, score.shape)
         bw_mask_p = np.zeros((micro_img.shape[0], micro_img.shape[1]))
+        qs = self.query_size // 2
 
-        begin_row_idx = y*int(self.query_size / 2)
-        end_row_idx = np.minimum(y * int(self.query_size / 2) + self.query_size,
-                                 bw_mask_p.shape[0] * np.ones(y.shape[0]))
+        begin_row_idx = y * qs
+        end_row_idx = np.minimum(begin_row_idx + self.query_size, bw_mask_p.shape[0])
+        begin_col_idx = x * qs
+        end_col_idx = np.minimum(begin_col_idx + self.query_size, bw_mask_p.shape[1])
 
-        begin_col_idx = x*int(self.query_size / 2)
-        end_col_idx = np.minimum(x * int(self.query_size / 2) + self.query_size,
-                                 bw_mask_p.shape[1] * np.ones(x.shape[0]))
-
-        begin_row_idx = begin_row_idx.astype(int)
-        end_row_idx = end_row_idx.astype(int)
-        begin_col_idx = begin_col_idx.astype(int)
-        end_col_idx = end_col_idx.astype(int)
-
-        for j in range(0, particle_windows.astype(int)):
-            bw_mask_p[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = np.ones(
-                end_row_idx[j] - begin_row_idx[j], end_col_idx[j] - begin_col_idx[j])
+        for j in range(particles):
+            bw_mask_p[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = 1
 
         bw_mask_n = np.copy(bw_mask_p)
-        for j in range(particle_windows.astype(int), non_noise_windows.astype(int)):
-            bw_mask_n[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = np.ones(
-                end_row_idx[j] - begin_row_idx[j], end_col_idx[j] - begin_col_idx[j])
+        for j in range(particles, non_noise):
+            bw_mask_n[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = 1
 
         return bw_mask_p, bw_mask_n
-

@@ -4,6 +4,7 @@ from scipy.cluster.vq import kmeans2
 
 from unittest import TestCase
 from unittest.mock import patch
+import pytest
 
 from aspyre.source import SourceFilter
 from aspyre.source.simulation import Simulation
@@ -41,6 +42,25 @@ class CovarianceTestCase(TestCase):
 
     def tearDown(self):
         pass
+
+    @pytest.mark.expensive
+    def testCovariance(self):
+        covar_est = self.covar_estimator_with_preconditioner.estimate(self.mean_est, self.noise_variance)
+
+        self.assertTrue(np.allclose(
+            np.array([
+                [0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  0.00000000e+00, -4.97200141e-17,  0.00000000e+00,  0.00000000e+00,  0.00000000e+00],
+                [0.00000000e+00,  0.00000000e+00, -1.12423131e-02, -7.82940670e-03, -5.25730644e-02, -5.12982911e-02,  5.46448594e-03,  0.00000000e+00],
+                [0.00000000e+00, -1.45263802e-02,  1.74773651e-02,  2.37465013e-02, -5.82802387e-02, -2.18693634e-02, -8.17610441e-03, -5.34913194e-02],
+                [0.00000000e+00, -1.25388002e-02,  3.32579746e-02, -2.47232520e-02, -1.45779671e-01, -9.90902473e-02, -1.21664500e-01, -1.86567008e-01],
+                [5.23168570e-17,  1.48361175e-02,  6.39768940e-02,  2.31061220e-01,  1.14505159e-01, -1.27282900e-01, -1.20426781e-01, -9.83754536e-02],
+                [0.00000000e+00, -2.77886166e-02, -2.70706646e-02,  3.27305040e-01,  3.52852148e-01,  1.95510582e-03, -5.53571860e-02, -2.08399248e-02],
+                [0.00000000e+00, -2.60699879e-02, -1.84686293e-02,  1.30268283e-01,  1.36522253e-01,  8.11090183e-02,  3.50443711e-02, -1.21283276e-02],
+                [0.00000000e+00,  0.00000000e+00,  6.67517637e-02,  1.12721933e-01, -8.87693429e-03,  2.99613531e-02,  4.14024319e-02,  0.00000000e+00]
+            ]),
+            covar_est[:, :, 4, 4, 4, 4],
+            atol=1e-4
+        ))
 
     @patch('scipy.sparse.linalg.cg')
     def testCovariance1(self, cg):
