@@ -1,5 +1,6 @@
 import os
 import logging
+from concurrent import futures
 
 import mrcfile
 import numpy as np
@@ -97,13 +98,30 @@ class Picker:
         reference_size = PickerHelper.reference_size(micro_img, self.container_size)
         conv_map = xp.zeros((reference_size, query_box.shape[0], query_box.shape[1]))
 
-        pbar = tqdm(total=reference_size, disable=not show_progress)
-        for index in range(reference_size):
+        def _work(index):
             reference_box_i = xp.fft.fft2(reference_box[index], axes=(0, 1))
             window_t = xp.multiply(reference_box_i, query_box)
             cc = xp.ifft2(window_t, axes=(2, 3))
-            conv_map[index, :, :] = cc.real.max((2, 3)) - cc.real.mean((2, 3))
-            pbar.update(1)
+            return index, cc.real.max((2, 3)) - cc.real.mean((2, 3))
+
+        n_works = reference_size
+        n_threads = config.apple.conv_map_nthreads
+        pbar = tqdm(total=reference_size, disable=not show_progress)
+
+        # Ideally we'd like something like 'SerialExecutor' to enable easy debugging
+        # but for now do an if-else
+        if n_threads > 1:
+            with futures.ThreadPoolExecutor(n_threads) as executor:
+                to_do = [executor.submit(_work, i) for i in range(n_works)]
+
+                for future in futures.as_completed(to_do):
+                    i, res = future.result()
+                    conv_map[i, :, :] = res
+                    pbar.update(1)
+        else:
+            for i in range(n_works):
+                _, conv_map[i, :, :] = _work(i)
+                pbar.update(1)
 
         pbar.close()
 
