@@ -92,15 +92,15 @@ class Picker:
 
         query_box = xp.conj(xp.fft2(query_box, axes=(2, 3)))
 
+        reference_box = PickerHelper.extract_references(micro_img, self.query_size, self.container_size)
+
         reference_size = PickerHelper.reference_size(micro_img, self.container_size)
         conv_map = xp.zeros((reference_size, query_box.shape[0], query_box.shape[1]))
 
         pbar = tqdm(total=reference_size, disable=not show_progress)
-        for index, reference_box in enumerate(
-            PickerHelper.extract_references(micro_img, self.query_size, self.container_size)
-        ):
-            reference_box = xp.fft2(reference_box, axes=(0, 1))
-            window_t = xp.multiply(reference_box, query_box)
+        for index in range(reference_size):
+            reference_box_i = xp.fft.fft2(reference_box[index], axes=(0, 1))
+            window_t = xp.multiply(reference_box_i, query_box)
             cc = xp.ifft2(window_t, axes=(2, 3))
             conv_map[index, :, :] = cc.real.max((2, 3)) - cc.real.mean((2, 3))
             pbar.update(1)
@@ -130,7 +130,7 @@ class Picker:
             Segmentation of the micrograph into noise and particle projections.
         """
 
-        micro_img = self.im
+        micro_img = xp.asarray(self.im)
         particle_windows = np.floor(self.tau1)
         non_noise_windows = np.ceil(self.tau2)
         bw_mask_p, bw_mask_n = Picker.get_maps(self, score, micro_img, particle_windows, non_noise_windows)
@@ -294,18 +294,16 @@ class Picker:
         """
         idx = np.argsort(-np.reshape(score, (np.prod(score.shape)), 'F'))
 
-        y = idx % score.shape[0]
-        x = np.floor(idx/score.shape[0])
+        x, y = np.unravel_index(idx, score.shape)
 
         bw_mask_p = np.zeros((micro_img.shape[0], micro_img.shape[1]))
+        qs = self.query_size // 2
 
-        begin_row_idx = y*int(self.query_size / 2)
-        end_row_idx = np.minimum(y * int(self.query_size / 2) + self.query_size,
-                                 bw_mask_p.shape[0] * np.ones(y.shape[0]))
+        begin_row_idx = y * qs
+        end_row_idx = np.minimum(begin_row_idx + self.query_size, bw_mask_p.shape[0] * np.ones(y.shape[0]))
 
-        begin_col_idx = x*int(self.query_size / 2)
-        end_col_idx = np.minimum(x * int(self.query_size / 2) + self.query_size,
-                                 bw_mask_p.shape[1] * np.ones(x.shape[0]))
+        begin_col_idx = x * qs
+        end_col_idx = np.minimum(begin_col_idx + self.query_size, bw_mask_p.shape[1] * np.ones(x.shape[0]))
 
         begin_row_idx = begin_row_idx.astype(int)
         end_row_idx = end_row_idx.astype(int)
@@ -322,4 +320,3 @@ class Picker:
                 end_row_idx[j] - begin_row_idx[j], end_col_idx[j] - begin_col_idx[j])
 
         return bw_mask_p, bw_mask_n
-
