@@ -198,9 +198,9 @@ class PickerHelper:
         n_std = xp.reshape(n_std, (n_std.shape[0], 1), 'F')
 
         x = xp.concatenate((p_mu, p_std), axis=1)
-        x = xp.concatenate((x, np.concatenate((n_mu, n_std), axis=1)), axis=0)
+        x = xp.concatenate((x, xp.concatenate((n_mu, n_std), axis=1)), axis=0)
 
-        y = xp.concatenate((np.ones(p_mu.shape[0]), np.zeros(n_mu.shape[0])), axis=0)
+        y = xp.concatenate((xp.ones(p_mu.shape[0]), xp.zeros(n_mu.shape[0])), axis=0)
 
         return x, y
 
