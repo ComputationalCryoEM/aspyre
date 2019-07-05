@@ -99,7 +99,7 @@ class Picker:
         conv_map = xp.zeros((reference_size, query_box.shape[0], query_box.shape[1]))
 
         def _work(index):
-            reference_box_i = xp.fft.fft2(reference_box[index], axes=(0, 1))
+            reference_box_i = xp.fft2(reference_box[index], axes=(0, 1))
             window_t = xp.multiply(reference_box_i, query_box)
             cc = xp.ifft2(window_t, axes=(2, 3))
             return index, cc.real.max((2, 3)) - cc.real.mean((2, 3))
