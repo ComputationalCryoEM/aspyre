@@ -290,33 +290,26 @@ class Picker:
             score: Matrix containing a score for each query image.
             micro_img: Micrograph image.
             particle_windows: Number of windows that must contain a particle.
-            non_noise_windows: Number of windows that must contain noise.
+            non_noise_windows: Number of windows that contain neither noise nor particles.
         """
+        particles = particle_windows.astype(int)
+        non_noise = non_noise_windows.astype(int)
+
         idx = np.argsort(-np.reshape(score, (np.prod(score.shape)), 'F'))
-
         x, y = np.unravel_index(idx, score.shape)
-
         bw_mask_p = np.zeros((micro_img.shape[0], micro_img.shape[1]))
         qs = self.query_size // 2
 
         begin_row_idx = y * qs
-        end_row_idx = np.minimum(begin_row_idx + self.query_size, bw_mask_p.shape[0] * np.ones(y.shape[0]))
-
+        end_row_idx = np.minimum(begin_row_idx + self.query_size, bw_mask_p.shape[0])
         begin_col_idx = x * qs
-        end_col_idx = np.minimum(begin_col_idx + self.query_size, bw_mask_p.shape[1] * np.ones(x.shape[0]))
+        end_col_idx = np.minimum(begin_col_idx + self.query_size, bw_mask_p.shape[1])
 
-        begin_row_idx = begin_row_idx.astype(int)
-        end_row_idx = end_row_idx.astype(int)
-        begin_col_idx = begin_col_idx.astype(int)
-        end_col_idx = end_col_idx.astype(int)
-
-        for j in range(0, particle_windows.astype(int)):
-            bw_mask_p[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = np.ones(
-                end_row_idx[j] - begin_row_idx[j], end_col_idx[j] - begin_col_idx[j])
+        for j in range(particles):
+            bw_mask_p[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = 1
 
         bw_mask_n = np.copy(bw_mask_p)
-        for j in range(particle_windows.astype(int), non_noise_windows.astype(int)):
-            bw_mask_n[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = np.ones(
-                end_row_idx[j] - begin_row_idx[j], end_col_idx[j] - begin_col_idx[j])
+        for j in range(particles, non_noise):
+            bw_mask_n[begin_row_idx[j]:end_row_idx[j], begin_col_idx[j]:end_col_idx[j]] = 1
 
         return bw_mask_p, bw_mask_n
